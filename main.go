@@ -1,90 +1,54 @@
 package main
 
 import (
-	"fmt"
 	"log/slog"
 	"os"
 	"time"
 
+	"github.com/evilhamsterman/secret-injector/pkg/kube"
 	"github.com/evilhamsterman/secret-injector/pkg/signals"
 	"github.com/lmittmann/tint"
 	"github.com/mattn/go-isatty"
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/client-go/informers"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/tools/clientcmd"
 )
 
 func main() {
-	log := slog.Default()
 	ctx := signals.SetupSignalHandler()
 
-	config := clientcmd.NewDefaultClientConfigLoadingRules()
-	cfg, err := clientcmd.BuildConfigFromKubeconfigGetter("", config.GetStartingConfig)
+	client, err := kube.GetKubeClient("")
 	if err != nil {
-		log.Error("Failed to load kubeconfig", slog.Any("error", err))
+		slog.Error("Failed to get kube client", slog.Any("error", err))
 		os.Exit(1)
 	}
 
-	log.Info("Successfully loaded kubeconfig file")
-
-	client, err := kubernetes.NewForConfig(cfg)
-	if err != nil {
-		log.Error("Failed to create kubernetes client", slog.Any("error", err))
-	}
-
-	l, _ := labels.NewRequirement("coder.com/project", selection.In, []string{"playground", "jow"})
+	l, _ := labels.NewRequirement("coder.com/project", selection.In, []string{"playground"})
 	s := labels.NewSelector().Add(*l)
-	log.Info("Selector", slog.Any("selector", s.String()))
+
+	slog.Info("Label selector", slog.Any("selector", s.String()))
 	labelOptions := informers.WithTweakListOptions(func(options *metav1.ListOptions) {
 		options.LabelSelector = s.String()
 	})
 
+	namespaceOptions := informers.WithNamespace("default")
 	informerFactory := informers.NewSharedInformerFactoryWithOptions(
 		client,
 		time.Second*30,
 		informers.WithNamespace("default"),
 		labelOptions,
+		namespaceOptions,
 	)
 
 	secretInformer := informerFactory.Core().V1().Secrets().Informer()
-	secretInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
-			object, ok := obj.(*v1.Secret)
-			if !ok {
-				log.Error("Failed to cast object to secret")
-				return
-			}
-			log.Info(
-				"Secret added",
-				slog.String("secret", object.Name),
-				slog.String("data", fmt.Sprint(object.Data)),
-				slog.String("namespace", object.Namespace),
-			)
-		},
-		UpdateFunc: func(oldObj, newObj interface{}) {
-			object, ok := newObj.(*v1.Secret)
-			if !ok {
-				log.Error("Failed to cast object to secret")
-				return
-			}
-			log.Info(
-				"Secret updated",
-				slog.String("secret", object.Name),
-				slog.String("data", fmt.Sprint(object.Data)),
-				slog.String("namespace", object.Namespace),
-			)
-		},
-	})
 
-	informerFactory.Start(ctx.Done())
-	log.Info("Syncing cache")
-	informerFactory.WaitForCacheSync(ctx.Done())
-	log.Info("Cache synced")
+	controller := kube.NewController(ctx, secretInformer)
+	if err := controller.Run(ctx); err != nil {
+		slog.Error("Failed to run controller", slog.Any("error", err))
+		os.Exit(1)
+	}
+	slog.Info("Controller stopped")
 
 }
 

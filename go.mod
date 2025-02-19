@@ -3,6 +3,7 @@ module github.com/evilhamsterman/secret-injector
 go 1.24.0
 
 require (
+	github.com/hack-pad/hackpadfs v0.2.4
 	github.com/lmittmann/tint v1.0.7
 	github.com/mattn/go-isatty v0.0.20
 	github.com/spf13/afero v1.11.0
