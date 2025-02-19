@@ -41,9 +41,7 @@ func main() {
 		namespaceOptions,
 	)
 
-	secretInformer := informerFactory.Core().V1().Secrets().Informer()
-
-	controller := kube.NewController(ctx, secretInformer)
+	controller := kube.NewController(ctx, informerFactory)
 	if err := controller.Run(ctx); err != nil {
 		slog.Error("Failed to run controller", slog.Any("error", err))
 		os.Exit(1)

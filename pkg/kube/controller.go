@@ -6,26 +6,28 @@ import (
 	"log/slog"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/cache"
 )
 
 type Controller struct {
-	// Secret informer
-	secretInformer cache.SharedIndexInformer
+	informerFactory informers.SharedInformerFactory
+	secretInformer  cache.SharedIndexInformer
 }
 
 // NewController initializes and creates a new controller
 func NewController(
 	ctx context.Context,
-	secretInformer cache.SharedIndexInformer,
+	informerFactory informers.SharedInformerFactory,
 ) *Controller {
 
 	c := &Controller{
-		secretInformer: secretInformer,
+		informerFactory: informerFactory,
+		secretInformer:  informerFactory.Core().V1().Secrets().Informer(),
 	}
 
 	c.secretInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    c.handleSecret,
+		AddFunc:    c.addSecret,
 		UpdateFunc: c.updateSecret,
 		DeleteFunc: c.deleteSecret,
 	})
@@ -56,7 +58,7 @@ func (c *Controller) updateSecret(oldObj, newObj interface{}) {
 	slog.Info("Secret updated", slog.String("secret", newSecret.Name))
 }
 
-func (c *Controller) handleSecret(obj interface{}) {
+func (c *Controller) addSecret(obj interface{}) {
 	secret := obj.(*v1.Secret)
 	slog.Info("Secret added", slog.String("secret", secret.Name))
 }
